@@ -189,9 +189,13 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
             const nameQuery = encodeURIComponent(supplier.name)
             const isAlibaba = supplier.platform.toLowerCase().includes('alibaba') || supplier.platform.toLowerCase().includes('oem')
 
-            // Use real product URL from web search if available
-            const href = supplier.product_url && supplier.product_url.startsWith('http')
-              ? supplier.product_url
+            const MARKETPLACES = ['alibaba.com', 'digikey.com', 'mouser.com', 'globalsources.com', 'thomasnet.com']
+            const isMarketplaceUrl = supplier.product_url && 
+              supplier.product_url.startsWith('http') &&
+              MARKETPLACES.some(m => supplier.product_url!.includes(m))
+
+            const marketplaceHref = isMarketplaceUrl
+              ? supplier.product_url!
               : isAlibaba
               ? `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
               : supplier.platform.includes('Digi-Key') ? `https://www.digikey.com/en/products/result?keywords=${tipQuery}`
@@ -200,12 +204,21 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
               : supplier.platform.includes('ThomasNet') ? `https://www.thomasnet.com/search/?searchterm=${nameQuery}`
               : `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
 
-            const label = supplier.product_url ? 'View product ↗' : `Find on ${supplier.platform} ↗`
+            const companyWebsite = !isMarketplaceUrl && supplier.product_url?.startsWith('http')
+              ? supplier.product_url
+              : null
 
             return (
-              <a href={href} target="_blank" rel="noopener noreferrer" className="btn btn-ghost">
-                {label}
-              </a>
+              <>
+                <a href={marketplaceHref} target="_blank" rel="noopener noreferrer" className="btn btn-ghost">
+                  {isMarketplaceUrl ? `View on ${supplier.platform} ↗` : `Search ${supplier.platform} ↗`}
+                </a>
+                {companyWebsite && (
+                  <a href={companyWebsite} target="_blank" rel="noopener noreferrer" className="btn btn-ghost">
+                    Company website ↗
+                  </a>
+                )}
+              </>
             )
           })()}
         </div>

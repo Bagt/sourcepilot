@@ -44,7 +44,10 @@ export default async function handler(
       .map((block) => (block.type === 'text' ? block.text : ''))
       .join('')
 
-    const clean = text.replace(/```json|```/g, '').trim()
+    // Extract JSON from response — model sometimes adds preamble text
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No JSON found in response')
+    const clean = jsonMatch[0]
     const result: SearchResult = JSON.parse(clean)
 
     return res.status(200).json(result)

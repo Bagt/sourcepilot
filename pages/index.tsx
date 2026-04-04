@@ -182,7 +182,7 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
             <>
               <br /><br />
               <strong>Direct link:</strong>{' '}
-              <a href={supplier.storefront_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 12, wordBreak: 'break-all' }}>
+              <a href={supplier.storefront_url.startsWith('http') ? supplier.storefront_url : `https://${supplier.storefront_url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 12, wordBreak: 'break-all' }}>
                 {supplier.storefront_url}
               </a>
             </>
@@ -195,7 +195,7 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
           </button>
           {supplier.storefront_url ? (
             <a
-              href={supplier.storefront_url}
+              href={supplier.storefront_url.startsWith('http') ? supplier.storefront_url : `https://${supplier.storefront_url}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-ghost"

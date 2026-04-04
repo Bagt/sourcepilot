@@ -178,50 +178,36 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
               </span>
             </>
           )}
-          {supplier.storefront_url && (
-            <>
-              <br /><br />
-              <strong>Direct link:</strong>{' '}
-              <a href={supplier.storefront_url.startsWith('http') ? supplier.storefront_url : `https://${supplier.storefront_url}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 12, wordBreak: 'break-all' }}>
-                {supplier.storefront_url}
-              </a>
-            </>
-          )}
         </div>
 
         <div className="card-actions">
           <button className="btn btn-primary" onClick={() => setShowRFQ(true)}>
             Draft RFQ →
           </button>
-          {supplier.storefront_url ? (
-            <a
-              href={supplier.storefront_url.startsWith('http') ? supplier.storefront_url : `https://${supplier.storefront_url}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-ghost"
-            >
-              Open storefront ↗
-            </a>
-          ) : (
-            <a
-              href={(() => {
-                const tipQuery = encodeURIComponent(supplier.search_tip || supplier.name)
-                const nameQuery = encodeURIComponent(supplier.name)
-                const isAlibaba = supplier.platform.toLowerCase().includes('alibaba') || supplier.platform.toLowerCase().includes('oem')
-                if (isAlibaba) return `https://www.alibaba.com/trade/search?SearchText=${nameQuery}&tab=supplier`
-                if (supplier.platform.includes('Digi-Key')) return `https://www.digikey.com/en/products/result?keywords=${tipQuery}`
-                if (supplier.platform.includes('Mouser')) return `https://www.mouser.com/Search/Refine?Keyword=${tipQuery}`
-                if (supplier.platform.includes('Global Sources')) return `https://www.globalsources.com/gsol/I/Product-search/a/9000000001784.htm?keywords=${nameQuery}`
-                if (supplier.platform.includes('ThomasNet')) return `https://www.thomasnet.com/search/?searchterm=${nameQuery}`
-                return `https://www.alibaba.com/trade/search?SearchText=${nameQuery}&tab=supplier`
-              })()}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-ghost"
-            >
-              Find on {supplier.platform} ↗
-            </a>
-          )}
+          {(() => {
+            const tipQuery = encodeURIComponent(supplier.search_tip || supplier.name)
+            const nameQuery = encodeURIComponent(supplier.name)
+            const isAlibaba = supplier.platform.toLowerCase().includes('alibaba') || supplier.platform.toLowerCase().includes('oem')
+
+            // Use real product URL from web search if available
+            const href = supplier.product_url && supplier.product_url.startsWith('http')
+              ? supplier.product_url
+              : isAlibaba
+              ? `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
+              : supplier.platform.includes('Digi-Key') ? `https://www.digikey.com/en/products/result?keywords=${tipQuery}`
+              : supplier.platform.includes('Mouser') ? `https://www.mouser.com/Search/Refine?Keyword=${tipQuery}`
+              : supplier.platform.includes('Global Sources') ? `https://www.globalsources.com/gsol/I/Product-search/a/9000000001784.htm?keywords=${nameQuery}`
+              : supplier.platform.includes('ThomasNet') ? `https://www.thomasnet.com/search/?searchterm=${nameQuery}`
+              : `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
+
+            const label = supplier.product_url ? 'View product ↗' : `Find on ${supplier.platform} ↗`
+
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="btn btn-ghost">
+                {label}
+              </a>
+            )
+          })()}
         </div>
       </div>
 

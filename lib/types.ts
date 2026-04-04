@@ -19,6 +19,7 @@ export interface Supplier {
   notes: string
   search_tip: string
   storefront_url?: string
+  product_url?: string
 }
 
 export interface Suggestion {

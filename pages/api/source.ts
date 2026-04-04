@@ -24,7 +24,13 @@ export default async function handler(
   try {
     const message = await client.messages.create({
       model: 'claude-opus-4-5',
-      max_tokens: 1500,
+      max_tokens: 2000,
+      tools: [
+        {
+          type: 'web_search_20250305',
+          name: 'web_search',
+        } as any,
+      ],
       messages: [
         {
           role: 'user',
@@ -33,6 +39,7 @@ export default async function handler(
       ],
     })
 
+    // Extract text from all content blocks including after tool use
     const text = message.content
       .map((block) => (block.type === 'text' ? block.text : ''))
       .join('')

@@ -27,14 +27,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const searchQuery = getSearchQuery(spec.description)
 
   try {
-    // STEP 1: Search Octopart and collect raw data
+    // STEP 1: Search each distributor directly
     const searchMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1000,
+      max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
       messages: [{
         role: 'user',
-        content: `Search octopart.com for "${searchQuery}" and return ONLY the raw data you find. List every distributor shown on the page with: distributor name, price, stock quantity, and the exact buy URL. Do not interpret or add anything — just copy the exact data from the page. If Octopart shows a buy button URL for each distributor, include that exact URL.`
+        content: `Search for "${searchQuery}" on each of these distributor sites and report exactly what you find — product URL, price, and stock for each:
+
+1. Search: "${searchQuery}" site:digikey.com
+2. Search: "${searchQuery}" site:mouser.com  
+3. Search: "${searchQuery}" site:farnell.com
+4. Search: "${searchQuery}" site:uk.rs-online.com
+
+For each result found, report:
+- Distributor name
+- Exact product page URL
+- Price (exact number)
+- Stock quantity
+- MOQ
+
+Report only what you actually find on each site. Do not guess or fill in missing data.`
       }],
     })
 
@@ -42,25 +56,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .map((b) => (b.type === 'text' ? b.text : ''))
       .join('')
 
-    // STEP 2: Structure the raw data into JSON
+    // STEP 2: Structure into JSON
     const structureMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `You found this raw distributor data for "${searchQuery}":
+        content: `Here is distributor data found for "${searchQuery}":
 
 ${rawData}
 
-Now structure the best 4 results into JSON. ONLY use distributors and URLs from the data above — do not add any distributor not mentioned. If a URL is in the data, use it exactly as shown.
+Structure the best 4 results into JSON. Only use distributors and URLs from above. Do not invent data.
 
-Context:
-- Quantity needed: ${spec.quantity || 'not specified'} units
-- Target price: ${spec.targetPrice ? '$' + spec.targetPrice : 'not specified'}
-- Certifications: ${spec.certifications || 'none'}
+Context: Quantity: ${spec.quantity || 'not specified'} | Target: ${spec.targetPrice ? '$' + spec.targetPrice : 'any'} | Certs: ${spec.certifications || 'none'}
 
 Return ONLY valid JSON:
-{"summary":"2 sentences with real distributor names and prices from the data","no_results":false,"suggestions":[],"suppliers":[{"name":"distributor name from data","platform":"Mouser / Digi-Key / Farnell / RS Components / Alibaba","country":"USA / UK / NL etc","unit_price":"exact price from data","moq":"MOQ from data","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence based on price and stock","notes":"2 sentences using only the data found","search_tip":"exact MPN","product_url":"exact URL from the data above"}]}`
+{"summary":"2 sentences naming real distributors with exact prices and stock found","no_results":false,"suggestions":[],"suppliers":[{"name":"distributor name","platform":"Mouser / Digi-Key / Farnell / RS Components","country":"USA / UK","unit_price":"exact price","moq":"MOQ","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences from real data","search_tip":"exact MPN","product_url":"exact URL from search results"}]}`
       }],
     })
 
@@ -69,7 +80,6 @@ Return ONLY valid JSON:
       .join('')
 
     if (!text?.trim()) throw new Error('Empty response')
-
     const jsonStr = extractJSON(text)
     if (!jsonStr) throw new Error('Could not extract JSON — try again')
 

@@ -27,38 +27,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const searchQuery = getSearchQuery(spec.description)
 
   try {
-    const prompt = `You are a hardware sourcing agent. Search Octopart to find real pricing, stock and buy links for this component.
-
-COMPONENT: ${spec.description}
-SEARCH TERM: "${searchQuery}"
-QUANTITY: ${spec.quantity || 'not specified'} units
-TARGET PRICE: ${spec.targetPrice ? '$' + spec.targetPrice : 'not specified'}
-LEAD TIME: ${spec.leadTime || 'flexible'}
-CERTIFICATIONS: ${spec.certifications || 'none'}
-
-SEARCH STEPS:
-1. Search octopart.com for "${searchQuery}" — this page shows ALL distributors with real prices, stock, and buy buttons
-2. From the Octopart results page, get the direct buy/product URLs for each distributor — these are the links shown next to each distributor name
-3. Also search digikey.com and mouser.com directly for "${searchQuery}" to get additional URLs
-
-CRITICAL RULES:
-- Use the exact buy URLs from Octopart — e.g. https://uk.farnell.com/...?CMP=grhb-synd-e14-octo-buynow-invf or https://www.digikey.com/en/products/detail/...
-- Each supplier must be a DIFFERENT distributor — never list the same distributor twice
-- Use exact prices shown on Octopart
-- Score A = best price+stock, B = good alternative, C = acceptable — rank correctly
-
-Return ONLY valid JSON, nothing before or after:
-{"summary":"2 sentences with real distributor names, exact prices, and stock levels","no_results":false,"suggestions":[],"suppliers":[{"name":"exact distributor name","platform":"Mouser / Digi-Key / Farnell / RS Components / Alibaba","country":"USA / UK / China","unit_price":"exact price from Octopart","moq":"exact MOQ","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences with real stock and pricing","search_tip":"exact MPN","product_url":"exact buy URL from Octopart results"}]}`
-
-    const message = await client.messages.create({
+    // STEP 1: Search Octopart and collect raw data
+    const searchMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1500,
+      max_tokens: 1000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{
+        role: 'user',
+        content: `Search octopart.com for "${searchQuery}" and return ONLY the raw data you find. List every distributor shown on the page with: distributor name, price, stock quantity, and the exact buy URL. Do not interpret or add anything — just copy the exact data from the page. If Octopart shows a buy button URL for each distributor, include that exact URL.`
+      }],
     })
 
-    const text = message.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
-    if (!text?.trim()) throw new Error('Empty response from AI')
+    const rawData = searchMessage.content
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('')
+
+    // STEP 2: Structure the raw data into JSON
+    const structureMessage = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: `You found this raw distributor data for "${searchQuery}":
+
+${rawData}
+
+Now structure the best 4 results into JSON. ONLY use distributors and URLs from the data above — do not add any distributor not mentioned. If a URL is in the data, use it exactly as shown.
+
+Context:
+- Quantity needed: ${spec.quantity || 'not specified'} units
+- Target price: ${spec.targetPrice ? '$' + spec.targetPrice : 'not specified'}
+- Certifications: ${spec.certifications || 'none'}
+
+Return ONLY valid JSON:
+{"summary":"2 sentences with real distributor names and prices from the data","no_results":false,"suggestions":[],"suppliers":[{"name":"distributor name from data","platform":"Mouser / Digi-Key / Farnell / RS Components / Alibaba","country":"USA / UK / NL etc","unit_price":"exact price from data","moq":"MOQ from data","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence based on price and stock","notes":"2 sentences using only the data found","search_tip":"exact MPN","product_url":"exact URL from the data above"}]}`
+      }],
+    })
+
+    const text = structureMessage.content
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('')
+
+    if (!text?.trim()) throw new Error('Empty response')
 
     const jsonStr = extractJSON(text)
     if (!jsonStr) throw new Error('Could not extract JSON — try again')

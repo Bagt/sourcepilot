@@ -16,6 +16,7 @@ async function getNexarToken(): Promise<string> {
     }),
   })
   const data = await res.json()
+  if (!data.access_token) throw new Error('No token received')
   return data.access_token
 }
 
@@ -34,11 +35,7 @@ async function searchNexar(query: string, token: string) {
                 clickUrl
                 inventoryLevel
                 moq
-                prices {
-                  quantity
-                  price
-                  currency
-                }
+                prices { quantity price currency }
               }
             }
           }
@@ -48,11 +45,8 @@ async function searchNexar(query: string, token: string) {
   `
   const res = await fetch(NEXAR_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ query: gql, variables: { q: query, limit: 5 } }),
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ query: gql, variables: { q: query, limit: 6 } }),
   })
   return res.json()
 }
@@ -60,19 +54,30 @@ async function searchNexar(query: string, token: string) {
 function formatNexarResults(nexarData: any): string {
   try {
     const results = nexarData?.data?.supSearch?.results || []
-    if (!results.length) return 'No results found on Nexar/Octopart.'
-    return results.slice(0, 6).map((r: any) => {
+    if (!results.length) return 'No parts found in distributor databases.'
+    return results.slice(0, 5).map((r: any) => {
       const part = r.part
       const sellers = part.sellers?.slice(0, 4).map((s: any) => {
         const offer = s.offers?.[0]
         const price = offer?.prices?.[0]
         return `  - ${s.company?.name}: ${price ? `$${price.price} (MOQ: ${offer?.moq || 1})` : 'price on request'}, stock: ${offer?.inventoryLevel || 'unknown'}, url: ${offer?.clickUrl || 'n/a'}`
-      }).join('\n') || '  - No sellers'
-      return `Part: ${part.mpn} by ${part.manufacturer?.name}\nDescription: ${part.shortDescription || 'n/a'}\nSellers:\n${sellers}`
+      }).join('\n') || '  - No distributors listed'
+      return `MPN: ${part.mpn} | Manufacturer: ${part.manufacturer?.name}\nDesc: ${part.shortDescription || 'n/a'}\nDistributors:\n${sellers}`
     }).join('\n\n')
   } catch {
-    return 'Error parsing Nexar results.'
+    return 'Could not parse distributor data.'
   }
+}
+
+function extractJSON(text: string): string | null {
+  let depth = 0, start = text.indexOf('{'), end = -1
+  if (start === -1) return null
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++
+    else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break } }
+  }
+  if (end === -1) return null
+  return text.slice(start, end + 1)
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -81,16 +86,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!spec.description?.trim()) return res.status(400).json({ error: 'Component description is required' })
 
   try {
+    // Step 1: Get live distributor data
     let nexarContext = ''
     try {
       const token = await getNexarToken()
       const nexarData = await searchNexar(spec.description, token)
       nexarContext = formatNexarResults(nexarData)
-    } catch {
-      nexarContext = 'Nexar API unavailable - using AI knowledge as fallback.'
+    } catch (e) {
+      console.log('Nexar unavailable, using AI fallback:', e)
+      nexarContext = 'Live distributor data unavailable - using knowledge base.'
     }
 
-    const prompt = `You are a hardware sourcing agent. Here is LIVE data from Nexar/Octopart:
+    // Step 2: AI structures and ranks results
+    const prompt = `You are a hardware sourcing agent for DTC brands. Return supplier results for this component.
 
 COMPONENT: ${spec.description}
 QUANTITY: ${spec.quantity || 'not specified'} units
@@ -98,13 +106,13 @@ TARGET PRICE: ${spec.targetPrice ? '$' + spec.targetPrice : 'not specified'}
 LEAD TIME: ${spec.leadTime || 'flexible'}
 CERTIFICATIONS: ${spec.certifications || 'none'}
 
-NEXAR LIVE DATA:
+LIVE DISTRIBUTOR DATA (from Mouser, Digi-Key, Farnell, RS Components and others):
 ${nexarContext}
 
-Return the best 4 suppliers using actual data above. Use exact seller names, prices, MOQs and URLs from Nexar. Supplement with Alibaba if needed.
+Using the live data above, return 4 suppliers. Use exact distributor names like Mouser, Digi-Key, Farnell, RS Components, Arrow. Use real prices and URLs from the data. Add Alibaba if needed for volume pricing.
 
-Return ONLY this JSON, no other text:
-{"summary":"2 sentence recommendation with specific suppliers and prices","no_results":false,"suggestions":[],"suppliers":[{"name":"seller name","platform":"Digi-Key/Mouser/Farnell/RS Components/Alibaba","country":"country","unit_price":"exact price","moq":"exact MOQ","lead_time":"in stock or X weeks","certifications":"CE/RoHS/etc","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences from actual data","search_tip":"exact MPN","product_url":"exact clickUrl from Nexar or marketplace URL"}]}`
+Return ONLY valid JSON, absolutely nothing else before or after:
+{"summary":"2 sentences mentioning specific distributors and prices found","no_results":false,"suggestions":[],"suppliers":[{"name":"exact distributor name e.g. Mouser Electronics","platform":"Mouser / Digi-Key / Farnell / RS Components / Arrow / Alibaba","country":"country","unit_price":"exact price from data","moq":"exact MOQ","lead_time":"In stock / 1-2 days / X weeks","certifications":"CE/RoHS/UL/etc","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences using actual data found","search_tip":"exact MPN","product_url":"exact URL from distributor data"}]}`
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-5',
@@ -113,16 +121,20 @@ Return ONLY this JSON, no other text:
     })
 
     const text = message.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
-    let depth = 0, start = text.indexOf('{'), end = -1
-    if (start !== -1) {
-      for (let i = start; i < text.length; i++) {
-        if (text[i] === '{') depth++
-        else if (text[i] === '}') { depth--; if (depth === 0) { end = i; break } }
-      }
+    
+    if (!text || text.trim().length === 0) {
+      throw new Error('Empty response from AI')
     }
-    if (start === -1 || end === -1) throw new Error('No JSON found in response')
-    const result: SearchResult = JSON.parse(text.slice(start, end + 1))
+
+    const jsonStr = extractJSON(text)
+    if (!jsonStr) {
+      console.error('Raw AI response:', text.slice(0, 500))
+      throw new Error('Could not extract JSON from response')
+    }
+
+    const result: SearchResult = JSON.parse(jsonStr)
     return res.status(200).json(result)
+
   } catch (err: unknown) {
     console.error('Sourcing API error:', err)
     return res.status(500).json({ error: 'Search failed: ' + (err instanceof Error ? err.message : 'Unknown error') })

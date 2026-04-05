@@ -59,9 +59,9 @@ const PRESETS: { label: string; spec: PartSpec }[] = [
 
 const PROGRESS_STEPS = [
   'Parsing specs',
-  'Nexar / Octopart',
+  'Mouser · Digi-Key',
+  'Farnell · RS Components',
   'Alibaba scan',
-  'Farnell / RS',
   'Ranking results',
 ]
 

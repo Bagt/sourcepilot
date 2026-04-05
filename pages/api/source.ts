@@ -23,8 +23,8 @@ export default async function handler(
 
   try {
     const message = await client.messages.create({
-      model: 'claude-opus-4-5',
-      max_tokens: 2000,
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1500,
       tools: [
         {
           type: 'web_search_20250305',
@@ -44,10 +44,26 @@ export default async function handler(
       .map((block) => (block.type === 'text' ? block.text : ''))
       .join('')
 
-    // Extract JSON from response — model sometimes adds preamble text
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    // Extract JSON — handle truncated or malformed responses
+    const jsonMatch = text.match(/\{[\s\S]*/)
     if (!jsonMatch) throw new Error('No JSON found in response')
-    const clean = jsonMatch[0]
+    
+    let clean = jsonMatch[0]
+    
+    // If JSON is truncated, try to close it gracefully
+    try {
+      JSON.parse(clean)
+    } catch {
+      // Try to salvage truncated JSON by closing open structures
+      const openBrackets = (clean.match(/\[/g) || []).length - (clean.match(/\]/g) || []).length
+      const openBraces = (clean.match(/\{/g) || []).length - (clean.match(/\}/g) || []).length
+      // Remove trailing incomplete entry
+      clean = clean.replace(/,\s*\{[^}]*$/, '')
+      // Close any open arrays and objects
+      for (let i = 0; i < openBrackets; i++) clean += ']'
+      for (let i = 0; i < openBraces; i++) clean += '}'
+    }
+    
     const result: SearchResult = JSON.parse(clean)
 
     return res.status(200).json(result)

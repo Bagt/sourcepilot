@@ -189,7 +189,7 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
             const nameQuery = encodeURIComponent(supplier.name)
             const isAlibaba = supplier.platform.toLowerCase().includes('alibaba') || supplier.platform.toLowerCase().includes('oem')
 
-            const MARKETPLACES = ['alibaba.com', 'digikey.com', 'mouser.com', 'globalsources.com', 'thomasnet.com']
+            const MARKETPLACES = ['alibaba.com', 'digikey.com', 'mouser.com', 'farnell.com', 'element14.com', 'rs-online.com', 'rsdelivers.com', 'globalsources.com', 'thomasnet.com']
             const isMarketplaceUrl = supplier.product_url && 
               supplier.product_url.startsWith('http') &&
               MARKETPLACES.some(m => supplier.product_url!.includes(m))
@@ -200,6 +200,8 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
               ? `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
               : supplier.platform.includes('Digi-Key') ? `https://www.digikey.com/en/products/result?keywords=${tipQuery}`
               : supplier.platform.includes('Mouser') ? `https://www.mouser.com/Search/Refine?Keyword=${tipQuery}`
+              : supplier.platform.includes('Farnell') ? `https://uk.farnell.com/search?st=${tipQuery}`
+              : supplier.platform.includes('RS') ? `https://uk.rs-online.com/web/c/?searchTerm=${tipQuery}`
               : supplier.platform.includes('Global Sources') ? `https://www.globalsources.com/gsol/I/Product-search/a/9000000001784.htm?keywords=${nameQuery}`
               : supplier.platform.includes('ThomasNet') ? `https://www.thomasnet.com/search/?searchterm=${nameQuery}`
               : `https://www.alibaba.com/trade/search?SearchText=${tipQuery}`
@@ -529,7 +531,7 @@ export default function Home() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', marginRight: 2 }}>Sources checked</span>
-                    {['Alibaba', 'Global Sources', 'Digi-Key', 'Mouser', 'ThomasNet'].map((src) => {
+                    {['Alibaba', 'Digi-Key', 'Mouser', 'Farnell', 'RS Components'].map((src) => {
                       const hit = result.suppliers.some(s => s.platform.includes(src))
                       return (
                         <span key={src} style={{

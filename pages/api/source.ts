@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const searchQuery = getSearchQuery(spec.description)
 
   try {
-    const prompt = `You are a hardware sourcing agent. Search Octopart first, then individual distributors, to find real pricing and stock for this component.
+    const prompt = `You are a hardware sourcing agent. Search Octopart to find real pricing, stock and buy links for this component.
 
 COMPONENT: ${spec.description}
 SEARCH TERM: "${searchQuery}"
@@ -37,15 +37,18 @@ LEAD TIME: ${spec.leadTime || 'flexible'}
 CERTIFICATIONS: ${spec.certifications || 'none'}
 
 SEARCH STEPS:
-1. Search octopart.com for "${searchQuery}" — this shows all distributors at once with real prices and stock
-2. Search mouser.com for "${searchQuery}" — get direct product URL
-3. Search digikey.com for "${searchQuery}" — get direct product URL
-4. Search farnell.com for "${searchQuery}" — get direct product URL
+1. Search octopart.com for "${searchQuery}" — this page shows ALL distributors with real prices, stock, and buy buttons
+2. From the Octopart results page, get the direct buy/product URLs for each distributor — these are the links shown next to each distributor name
+3. Also search digikey.com and mouser.com directly for "${searchQuery}" to get additional URLs
 
-From Octopart you will find: exact prices per distributor, stock levels, SKU numbers, and direct buy links to Mouser/Digi-Key/Farnell/RS. Use these real URLs and prices in your response.
+CRITICAL RULES:
+- Use the exact buy URLs from Octopart — e.g. https://uk.farnell.com/...?CMP=grhb-synd-e14-octo-buynow-invf or https://www.digikey.com/en/products/detail/...
+- Each supplier must be a DIFFERENT distributor — never list the same distributor twice
+- Use exact prices shown on Octopart
+- Score A = best price+stock, B = good alternative, C = acceptable — rank correctly
 
 Return ONLY valid JSON, nothing before or after:
-{"summary":"2 sentences with real distributor names, exact prices, and stock levels found on Octopart","no_results":false,"suggestions":[],"suppliers":[{"name":"exact distributor name e.g. Mouser Electronics","platform":"Mouser / Digi-Key / Farnell / RS Components / Alibaba","country":"USA / UK / China","unit_price":"exact price e.g. $0.185","moq":"exact MOQ e.g. 1","lead_time":"In stock / 1-2 days / X weeks","certifications":"RoHS / CE / etc","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences with real stock and pricing data","search_tip":"exact MPN e.g. CR2032","product_url":"direct URL to product on mouser.com, digikey.com, farnell.com, or rs-online.com"}]}`
+{"summary":"2 sentences with real distributor names, exact prices, and stock levels","no_results":false,"suggestions":[],"suppliers":[{"name":"exact distributor name","platform":"Mouser / Digi-Key / Farnell / RS Components / Alibaba","country":"USA / UK / China","unit_price":"exact price from Octopart","moq":"exact MOQ","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences with real stock and pricing","search_tip":"exact MPN","product_url":"exact buy URL from Octopart results"}]}`
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-5',

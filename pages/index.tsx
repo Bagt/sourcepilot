@@ -59,9 +59,9 @@ const PRESETS: { label: string; spec: PartSpec }[] = [
 
 const PROGRESS_STEPS = [
   'Parsing specs',
+  'Nexar / Octopart',
   'Alibaba scan',
-  'Digi-Key / Mouser',
-  'Global Sources',
+  'Farnell / RS',
   'Ranking results',
 ]
 
@@ -532,7 +532,7 @@ export default function Home() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase', marginRight: 2 }}>Sources checked</span>
                     {['Alibaba', 'Digi-Key', 'Mouser', 'Farnell', 'RS Components'].map((src) => {
-                      const hit = result.suppliers.some(s => s.platform.includes(src))
+                      const hit = result.suppliers.some(s => s.platform.includes(src) || s.platform.includes('Nexar'))
                       return (
                         <span key={src} style={{
                           fontSize: 11,

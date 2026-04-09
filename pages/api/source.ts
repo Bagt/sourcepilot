@@ -109,13 +109,13 @@ Alibaba search URL: https://www.alibaba.com/trade/search?SearchText=${encodeURIC
     // Structure results with AI
     const structureMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1200,
+      max_tokens: 1500,
       messages: [{
         role: 'user',
         content: `Structure supplier results for "${searchQuery}".
 
 LIVE DATA:
-${contextData.slice(0, 2500)}
+${contextData.slice(0, 1500)}
 
 Quantity: ${spec.quantity || 'not specified'} | Target: ${spec.targetPrice ? '$' + spec.targetPrice : 'any'} | Certs: ${spec.certifications || 'none'}
 
@@ -125,15 +125,18 @@ RULES:
 - Each supplier must be different
 - Score A=best, B=good, C=acceptable
 
-Return ONLY valid JSON:
-{"summary":"2 sentences with real supplier names and prices","no_results":false,"suggestions":[],"suppliers":[{"name":"supplier name","platform":"Alibaba / Digi-Key / Mouser / Farnell / RS Components","country":"China / USA / UK","unit_price":"price from data","moq":"MOQ","lead_time":"2-4 weeks / In stock","certifications":"CE/RoHS/etc","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences","search_tip":"exact product name","product_url":"exact URL from data above"}]}`
+Return ONLY this JSON with no text before or after it:
+{"summary":"2 sentences","no_results":false,"suggestions":[],"suppliers":[{"name":"supplier name","platform":"Alibaba","country":"China","unit_price":"$X-Y","moq":"X units","lead_time":"2-4 weeks","certifications":"CE/RoHS","score":"A","score_reason":"one sentence","notes":"2 sentences","search_tip":"product name","product_url":"exact URL from data"}]}`
       }],
     })
 
     const text = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
     if (!text?.trim()) throw new Error('Empty response')
     const jsonStr = extractJSON(text)
-    if (!jsonStr) throw new Error('Could not extract JSON')
+    if (!jsonStr) {
+      console.error('Raw AI response:', text.slice(0, 800))
+      throw new Error('Could not extract JSON')
+    }
 
     const result: SearchResult = JSON.parse(jsonStr)
     return res.status(200).json(result)

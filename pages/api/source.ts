@@ -131,13 +131,26 @@ Return ONLY this JSON with no text before or after it:
     })
 
     const rawText = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
-    const text = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    // Strip all possible markdown wrappers
+    const text = rawText
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .replace(/^\s*json\s*/i, '')
+      .trim()
     if (!text?.trim()) throw new Error('Empty response')
     const jsonStr = extractJSON(text)
     if (!jsonStr) {
+      // Last resort: try to find JSON anywhere in the response
+      const anyJson = rawText.match(/\{[\s\S]{50,}\}/)
+      if (anyJson) {
+        try {
+          const result: SearchResult = JSON.parse(anyJson[0])
+          return res.status(200).json(result)
+        } catch {}
+      }
       return res.status(500).json({ 
-        error: 'Could not extract JSON',
-        rawResponse: text.slice(0, 500)
+        error: 'Search failed — please try again',
+        rawResponse: text.slice(0, 300)
       })
     }
 

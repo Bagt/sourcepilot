@@ -130,12 +130,15 @@ Return ONLY this JSON with no text before or after it:
       }],
     })
 
-    const text = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+    const rawText = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+    const text = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     if (!text?.trim()) throw new Error('Empty response')
     const jsonStr = extractJSON(text)
     if (!jsonStr) {
-      console.error('Raw AI response:', text.slice(0, 800))
-      throw new Error('Could not extract JSON')
+      return res.status(500).json({ 
+        error: 'Could not extract JSON',
+        rawResponse: text.slice(0, 500)
+      })
     }
 
     const result: SearchResult = JSON.parse(jsonStr)

@@ -25,6 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: JSON.stringify({
         source: 'alibaba_search',
         query: 'Stainless beer tap ball lock connector 7/16 20UNF thread',
+        render: 'html',
       }),
     })
 

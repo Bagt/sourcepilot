@@ -159,7 +159,11 @@ function SupplierCard({ supplier, isTop, spec }: SupplierCardProps) {
         </div>
 
         <div className="metrics">
-          <MetricBox label="Unit price" value={supplier.unit_price} />
+          <MetricBox label="Unit price" value={
+            supplier.unit_price === 'Contact for quote' || supplier.unit_price === 'Login for pricing'
+              ? 'Login required'
+              : supplier.unit_price
+          } />
           <MetricBox label="MOQ" value={supplier.moq} />
           <MetricBox label="Lead time" value={supplier.lead_time} />
           <MetricBox label="Certs" value={supplier.certifications || 'Verify'} />
@@ -487,7 +491,17 @@ export default function Home() {
                 {loading ? 'Searching...' : 'Find suppliers →'}
               </button>
 
-              {error && <div className="error-box">{error}</div>}
+              {error && (
+                <div className="error-box">
+                  {error}
+                  <button 
+                    onClick={handleSearch}
+                    style={{ marginLeft: 12, fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--red)', background: 'transparent', color: 'var(--red)', cursor: 'pointer' }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Progress */}

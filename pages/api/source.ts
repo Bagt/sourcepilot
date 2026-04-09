@@ -109,28 +109,23 @@ Alibaba search URL: https://www.alibaba.com/trade/search?SearchText=${encodeURIC
     // Structure results with AI
     const structureMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1500,
+      max_tokens: 2000,
+      system: 'You are a JSON API. You ONLY output valid JSON. Never use markdown. Never use code blocks. Never add explanations. Your entire response must be a single JSON object starting with { and ending with }.',
       messages: [{
         role: 'user',
-        content: `Structure supplier results for "${searchQuery}".
+        content: `Return supplier data for "${searchQuery}" as JSON.
 
-LIVE DATA:
+DATA:
 ${contextData.slice(0, 1500)}
 
-Quantity: ${spec.quantity || 'not specified'} | Target: ${spec.targetPrice ? '$' + spec.targetPrice : 'any'} | Certs: ${spec.certifications || 'none'}
+Specs: qty=${spec.quantity || 'any'}, target=${spec.targetPrice ? '$'+spec.targetPrice : 'any'}, certs=${spec.certifications || 'none'}
 
-RULES:
-- Use ONLY supplier names and URLs from the data above
-- For Alibaba suppliers, use the exact product URLs from the list above
-- Each supplier must be different
-- Score A=best, B=good, C=acceptable
-
-Return ONLY this JSON with no text before or after it:
-{"summary":"2 sentences","no_results":false,"suggestions":[],"suppliers":[{"name":"supplier name","platform":"Alibaba","country":"China","unit_price":"$X-Y","moq":"X units","lead_time":"2-4 weeks","certifications":"CE/RoHS","score":"A","score_reason":"one sentence","notes":"2 sentences","search_tip":"product name","product_url":"exact URL from data"}]}`
+{"summary":"one sentence summary","no_results":false,"suggestions":[],"suppliers":[{"name":"supplier name","platform":"Alibaba","country":"China","unit_price":"$X-Y","moq":"X units","lead_time":"2-4 weeks","certifications":"CE/RoHS","score":"A","score_reason":"one sentence","notes":"two sentences","search_tip":"product name","product_url":"exact url from data"}]}`
       }],
     })
 
     const rawText = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+    console.log('AI raw response length:', rawText.length, 'sample:', rawText.slice(0, 200))
     // Strip all possible markdown wrappers
     const text = rawText
       .replace(/```json\s*/gi, '')
@@ -149,8 +144,8 @@ Return ONLY this JSON with no text before or after it:
         } catch {}
       }
       return res.status(500).json({ 
-        error: 'Search failed — please try again',
-        rawResponse: text.slice(0, 300)
+        error: 'Our AI agent had trouble processing the results. Please try a shorter, simpler description — e.g. "peristaltic pump 12V food grade".',
+        rawResponse: rawText.slice(0, 800)
       })
     }
 

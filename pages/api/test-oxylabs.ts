@@ -25,46 +25,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: JSON.stringify({
         source: 'alibaba_search',
         query: 'peristaltic pump 12v food grade',
-        parse: true,
       }),
     })
 
     clearTimeout(timeout)
-    const rawText = await response.text()
+    const data = await response.json()
+    const html = data?.results?.[0]?.content || ''
 
-    let data: any = {}
-    try { data = JSON.parse(rawText) } catch {
-      return res.status(200).json({
-        httpStatus: response.status,
-        rawSample: rawText.slice(0, 500),
-        parseError: true,
-        debug: { userLength: user.length, passLength: pass.length }
-      })
-    }
-
-    // With parse:true, Oxylabs returns structured data
-    const parsed = data?.results?.[0]?.content
-    const html = typeof parsed === 'string' ? parsed : JSON.stringify(parsed || '')
-
-    // Extract product data
-    const prices = html.match(/US\$[\d,.]+[-–]?[\d,.]*/g) || []
-    const minOrders = html.match(/[\d,]+\s*(Pieces?|Units?|Sets?)\s*\(Min/gi) || []
-    const productLinks = html.match(/\/product-detail\/[^"?\s]{10,120}/g) || []
-    const companyNames = html.match(/"companyName"\s*:\s*"([^"]{5,60})"/g) || []
-    const productTitles = html.match(/"subject"\s*:\s*"([^"]{10,100})"/g) || []
+    // Extract product data from raw HTML
+    const prices = html.match(/US\$\s*[\d,.]+\s*[-–]\s*[\d,.]+|US\$\s*[\d,.]+/g) || []
+    const minOrders = html.match(/[\d,]+\s*(?:Pieces?|Units?|Sets?)\s*\(Min/gi) || []
+    const productLinks = [...new Set(html.match(/\/product-detail\/[^"&\s]{10,150}/g) || [])]
+    const supplierNames = [...new Set((html.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || []).map((m: string) => m.replace(/"companyName"\s*:\s*"/, '').replace(/"$/, '')))]
+    const subjects = [...new Set((html.match(/"subject"\s*:\s*"([^"]{10,120})"/g) || []).map((m: string) => m.replace(/"subject"\s*:\s*"/, '').replace(/"$/, '')))]
 
     return res.status(200).json({
       jobStatus: data?.job?.status,
       httpStatus: response.status,
       htmlLength: html.length,
-      isParsed: typeof parsed !== 'string',
-      parsedKeys: typeof parsed === 'object' && parsed ? Object.keys(parsed).slice(0, 10) : [],
       prices: prices.slice(0, 8),
       minOrders: minOrders.slice(0, 5),
-      productLinks: productLinks.slice(0, 5),
-      companyNames: companyNames.slice(0, 6),
-      productTitles: productTitles.slice(0, 5),
-      htmlSample: html.slice(0, 1000),
+      productLinks: productLinks.slice(0, 6),
+      supplierNames: supplierNames.slice(0, 8),
+      subjects: subjects.slice(0, 5),
+      htmlSample: html.slice(2000, 4000),
     })
   } catch (err: unknown) {
     return res.status(500).json({ error: String(err) })

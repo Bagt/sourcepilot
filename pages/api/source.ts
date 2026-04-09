@@ -19,6 +19,67 @@ function getSearchQuery(description: string): string {
   return firstLine.length > 60 ? firstLine.slice(0, 60) : firstLine
 }
 
+async function scrapeAlibaba(query: string): Promise<string> {
+  const searchUrl = `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(query)}&IndexArea=product_en`
+  
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic ' + Buffer.from(`${process.env.OXYLABS_USER}:${process.env.OXYLABS_PASS}`).toString('base64'),
+    },
+    body: JSON.stringify({
+      source: 'universal',
+      url: searchUrl,
+      render: 'html',
+    }),
+  })
+
+  const data = await response.json()
+  const html = data?.results?.[0]?.content || ''
+  
+  // Extract product listings from HTML
+  // Look for product titles, prices, supplier names, and URLs
+  const productMatches = html.match(/data-spm-anchor-id[^>]*>([^<]{10,100})<\/[a-z]/g) || []
+  const priceMatches = html.match(/US\$[\d,.]+-?[\d,.]*|[\d,.]+\/piece|[\d,.]+\/unit/gi) || []
+  const minOrderMatches = html.match(/[\d,]+ (pieces?|units?|sets?|pairs?) \(Min\. Order\)/gi) || []
+  
+  if (!productMatches.length && !priceMatches.length) {
+    return 'No Alibaba results extracted — HTML may require JavaScript rendering'
+  }
+
+  return `Alibaba search results for "${query}":
+Products found: ${productMatches.slice(0, 10).join(' | ')}
+Prices found: ${priceMatches.slice(0, 8).join(' | ')}
+Min orders: ${minOrderMatches.slice(0, 5).join(' | ')}
+Search URL: ${searchUrl}`
+}
+
+async function scrapeTaobao(query: string): Promise<string> {
+  const searchUrl = `https://s.taobao.com/search?q=${encodeURIComponent(query)}`
+  
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic ' + Buffer.from(`${process.env.OXYLABS_USER}:${process.env.OXYLABS_PASS}`).toString('base64'),
+    },
+    body: JSON.stringify({
+      source: 'universal',
+      url: searchUrl,
+      render: 'html',
+    }),
+  })
+
+  const data = await response.json()
+  const html = data?.results?.[0]?.content || ''
+  
+  const priceMatches = html.match(/¥[\d,.]+|[\d,.]+元/g) || []
+  
+  return `Taobao search URL: ${searchUrl}
+Prices found: ${priceMatches.slice(0, 5).join(' | ') || 'Login required to see prices'}`
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const spec: PartSpec = req.body
@@ -27,58 +88,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const searchQuery = getSearchQuery(spec.description)
 
   try {
-    // STEP 1: Search each distributor directly
-    const searchMessage = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1500,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-      messages: [{
-        role: 'user',
-        content: `Search for "${searchQuery}" on each of these distributor sites and report exactly what you find — product URL, price, and stock for each:
+    // Run scraping + web search in parallel
+    const [alibabaData, webSearchMessage] = await Promise.allSettled([
+      scrapeAlibaba(searchQuery),
+      client.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 800,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+        messages: [{
+          role: 'user',
+          content: `Search for "${searchQuery}" on digikey.com and mouser.com. For each, find the product URL, exact price, and stock. Report only what you find.`
+        }],
+      })
+    ])
 
-1. Search: "${searchQuery}" site:digikey.com
-2. Search: "${searchQuery}" site:mouser.com  
-3. Search: "${searchQuery}" site:farnell.com
-4. Search: "${searchQuery}" site:uk.rs-online.com
+    const alibabaContext = alibabaData.status === 'fulfilled' 
+      ? alibabaData.value 
+      : 'Alibaba scraping unavailable'
 
-For each result found, report:
-- Distributor name
-- Exact product page URL
-- Price (exact number)
-- Stock quantity
-- MOQ
+    const webContext = webSearchMessage.status === 'fulfilled'
+      ? webSearchMessage.value.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+      : 'Web search unavailable'
 
-Report only what you actually find on each site. Do not guess or fill in missing data.`
-      }],
-    })
-
-    const rawData = searchMessage.content
-      .map((b) => (b.type === 'text' ? b.text : ''))
-      .join('')
-
-    // STEP 2: Structure into JSON
+    // Structure all results
     const structureMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
       max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `Here is distributor data found for "${searchQuery}":
+        content: `You have live data for "${searchQuery}". Structure the best 4 supplier results.
 
-${rawData}
+ALIBABA LIVE DATA:
+${alibabaContext}
 
-Structure the best 4 results into JSON. Only use distributors and URLs from above. Do not invent data.
+DISTRIBUTOR DATA (Digi-Key/Mouser):
+${webContext}
+
+Rules:
+- Use the Alibaba search URL for Alibaba suppliers: https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(searchQuery)}&IndexArea=product_en
+- Each supplier must be different
+- Use real prices from the data above
+- For Alibaba suppliers: use realistic MOQ (100-1000 units) and price ranges from the data
 
 Context: Quantity: ${spec.quantity || 'not specified'} | Target: ${spec.targetPrice ? '$' + spec.targetPrice : 'any'} | Certs: ${spec.certifications || 'none'}
 
 Return ONLY valid JSON:
-{"summary":"2 sentences naming real distributors with exact prices and stock found","no_results":false,"suggestions":[],"suppliers":[{"name":"distributor name","platform":"Mouser / Digi-Key / Farnell / RS Components","country":"USA / UK","unit_price":"exact price","moq":"MOQ","lead_time":"In stock / X days","certifications":"RoHS / CE","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences from real data","search_tip":"exact MPN","product_url":"exact URL from search results"}]}`
+{"summary":"2 sentences with real data found across Alibaba and distributors","no_results":false,"suggestions":[],"suppliers":[{"name":"supplier or distributor name","platform":"Alibaba / Digi-Key / Mouser / Farnell / RS Components","country":"China / USA / UK","unit_price":"price from data","moq":"MOQ","lead_time":"2-4 weeks / In stock","certifications":"CE/RoHS/etc","score":"A/B/C","score_reason":"one sentence","notes":"2 sentences from real data","search_tip":"exact search term","product_url":"exact URL"}]}`
       }],
     })
 
-    const text = structureMessage.content
-      .map((b) => (b.type === 'text' ? b.text : ''))
-      .join('')
-
+    const text = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
     if (!text?.trim()) throw new Error('Empty response')
     const jsonStr = extractJSON(text)
     if (!jsonStr) throw new Error('Could not extract JSON — try again')

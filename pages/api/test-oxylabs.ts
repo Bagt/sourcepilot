@@ -12,27 +12,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       body: JSON.stringify({
         source: 'universal',
-        url: 'https://www.alibaba.com/trade/search?SearchText=peristaltic+pump+12v+food+grade&IndexArea=product_en',
+        url: 'https://www.alibaba.com/trade/search?SearchText=peristaltic+pump+12v&IndexArea=product_en',
         render: 'html',
+        parse: false,
       }),
     })
 
-    const data = await response.json()
-    const html = data?.results?.[0]?.content || ''
+    const rawText = await response.text()
     
-    // Extract key data points
+    let data: any = {}
+    try { data = JSON.parse(rawText) } catch { 
+      return res.status(200).json({ 
+        status: response.status,
+        rawSample: rawText.slice(0, 500),
+        error: 'JSON parse failed'
+      })
+    }
+
+    const html = data?.results?.[0]?.content || ''
+    const jobStatus = data?.job?.status
+    const statusCode = data?.results?.[0]?.status_code
+
     const prices = html.match(/US\$[\d,.]+[-–]?[\d,.]*|\$[\d,.]+/g) || []
     const minOrders = html.match(/[\d,]+\s*(Pieces?|Units?|Sets?)\s*\(Min/gi) || []
     const suppliers = html.match(/"companyName":"([^"]{5,60})"/g) || []
-    const productLinks = html.match(/href="(\/product-detail\/[^"]{20,150})"/g) || []
+    const productLinks = html.match(/\/product-detail\/[^"?]{20,150}/g) || []
 
     return res.status(200).json({
+      jobStatus,
+      statusCode,
       htmlLength: html.length,
-      prices: prices.slice(0, 10),
+      prices: prices.slice(0, 8),
       minOrders: minOrders.slice(0, 5),
       suppliers: suppliers.slice(0, 8),
       productLinks: productLinks.slice(0, 5),
-      htmlSample: html.slice(0, 500),
+      htmlSample: html.slice(0, 800),
     })
   } catch (err: unknown) {
     return res.status(500).json({ error: String(err) })

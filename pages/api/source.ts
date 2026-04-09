@@ -31,28 +31,23 @@ async function scrapeAlibaba(query: string): Promise<string> {
     body: JSON.stringify({
       source: 'universal',
       url: searchUrl,
-      render: 'html',
     }),
   })
 
   const data = await response.json()
-  const html = data?.results?.[0]?.content || ''
+  // Truncate HTML to first 8000 chars to avoid token limits
+  const html = (data?.results?.[0]?.content || '').slice(0, 8000)
   
-  // Extract product listings from HTML
-  // Look for product titles, prices, supplier names, and URLs
-  const productMatches = html.match(/data-spm-anchor-id[^>]*>([^<]{10,100})<\/[a-z]/g) || []
-  const priceMatches = html.match(/US\$[\d,.]+-?[\d,.]*|[\d,.]+\/piece|[\d,.]+\/unit/gi) || []
-  const minOrderMatches = html.match(/[\d,]+ (pieces?|units?|sets?|pairs?) \(Min\. Order\)/gi) || []
-  
-  if (!productMatches.length && !priceMatches.length) {
-    return 'No Alibaba results extracted — HTML may require JavaScript rendering'
-  }
+  const priceMatches = html.match(/US\$[\d,.]+[-–]?[\d,.]*|[\d,.]+\s*\/\s*(piece|unit|set)/gi) || []
+  const minOrderMatches = html.match(/[\d,]+\s*(pieces?|units?|sets?)\s*\(Min/gi) || []
+  // Extract supplier names from common Alibaba HTML patterns
+  const supplierMatches = html.match(/company-name[^>]*>([^<]{5,60})</g)?.map((m: string) => m.replace(/company-name[^>]*>/, '').replace(/<.*/, '')) || []
 
-  return `Alibaba search results for "${query}":
-Products found: ${productMatches.slice(0, 10).join(' | ')}
-Prices found: ${priceMatches.slice(0, 8).join(' | ')}
-Min orders: ${minOrderMatches.slice(0, 5).join(' | ')}
-Search URL: ${searchUrl}`
+  return `Alibaba results for "${query}":
+Search URL: ${searchUrl}
+Prices: ${priceMatches.slice(0, 6).join(' | ') || 'not extracted'}
+Min orders: ${minOrderMatches.slice(0, 4).join(' | ') || 'not extracted'}
+Suppliers: ${supplierMatches.slice(0, 4).join(' | ') || 'not extracted'}`
 }
 
 async function scrapeTaobao(query: string): Promise<string> {
@@ -93,11 +88,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       scrapeAlibaba(searchQuery),
       client.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 800,
+        max_tokens: 600,
         tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
         messages: [{
           role: 'user',
-          content: `Search for "${searchQuery}" on digikey.com and mouser.com. For each, find the product URL, exact price, and stock. Report only what you find.`
+          content: `Search "${searchQuery}" site:digikey.com and "${searchQuery}" site:mouser.com. Return product URL, price, stock for each. Be brief.`
         }],
       })
     ])

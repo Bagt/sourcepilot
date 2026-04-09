@@ -35,9 +35,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Extract product data from raw HTML
     const prices = html.match(/US\$\s*[\d,.]+\s*[-–]\s*[\d,.]+|US\$\s*[\d,.]+/g) || []
     const minOrders = html.match(/[\d,]+\s*(?:Pieces?|Units?|Sets?)\s*\(Min/gi) || []
-    const productLinks = [...new Set(html.match(/\/product-detail\/[^"&\s]{10,150}/g) || [])]
-    const supplierNames = [...new Set((html.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || []).map((m: string) => m.replace(/"companyName"\s*:\s*"/, '').replace(/"$/, '')))]
-    const subjects = [...new Set((html.match(/"subject"\s*:\s*"([^"]{10,120})"/g) || []).map((m: string) => m.replace(/"subject"\s*:\s*"/, '').replace(/"$/, '')))]
+    const productLinks = Array.from(new Set(html.match(/\/product-detail\/[^"&\s]{10,150}/g) || []))
+    const supplierNames = Array.from(new Set((html.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || []).map((m: string) => m.replace(/"companyName"\s*:\s*"/, '').replace(/"$/, ''))))
+    const subjects = Array.from(new Set((html.match(/"subject"\s*:\s*"([^"]{10,120})"/g) || []).map((m: string) => m.replace(/"subject"\s*:\s*"/, '').replace(/"$/, ''))))
 
     return res.status(200).json({
       jobStatus: data?.job?.status,

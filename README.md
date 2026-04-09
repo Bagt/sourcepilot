@@ -86,3 +86,4 @@ Pre-loaded with 5 real MiniBrew components:
 ## Cost estimate
 
 At ~5 searches/day: ~$0.30/day in Claude API costs. For 10 users doing 5 searches each: ~$3/day.
+

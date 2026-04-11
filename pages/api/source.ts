@@ -73,39 +73,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!spec.description?.trim()) return res.status(400).json({ error: 'Component description is required' })
 
   const searchQuery = getSearchQuery(spec.description)
-  const isElectronics = /sensor|resistor|capacitor|microcontroller|esp32|arduino|transistor|diode|pcb|module|cr203|battery|fan|rdm|brushless|blower/i.test(spec.description)
 
   try {
     let contextData = ''
 
-    // Always run both in parallel — Alibaba for volume, distributors for certified parts
-    const [alibabaResult, distributorResult] = await Promise.allSettled([
-      scrapeAlibaba(searchQuery),
-      client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 600,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-        messages: [{
-          role: 'user',
-          content: `Search "${searchQuery}" on digikey.com and mouser.com. Return product URL, price, stock. Be brief.`
-        }],
-      })
-    ])
+    // Step 1: Scrape Alibaba
+    let alibabaContext = 'Alibaba: unavailable'
+    try {
+      const alibaba = await scrapeAlibaba(searchQuery)
+      alibabaContext = `ALIBABA: Suppliers: ${alibaba.suppliers.slice(0, 4).join(' | ')} | Prices: ${alibaba.prices.slice(0, 4).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 4).join(' | ')}`
+    } catch {}
 
-    const alibabaContext = alibabaResult.status === 'fulfilled'
-      ? `ALIBABA SUPPLIERS:
-Suppliers: ${alibabaResult.value.suppliers.join(' | ')}
-Prices: ${alibabaResult.value.prices.join(' | ')}
-Min orders: ${alibabaResult.value.minOrders.join(' | ')}
-Product URLs:
-${alibabaResult.value.productLinks.map((l: string, i: number) => `${i + 1}. ${l}`).join('\n')}`
-      : 'Alibaba: unavailable'
+    // Step 2: Search distributors (only if electronics or no Alibaba results)
+    let distributorContext = ''
+    const isElectronics = /sensor|esp32|arduino|pcb|module|battery|fan|rdm|brushless|cr203|microcontroller/i.test(spec.description)
+    if (isElectronics) {
+      try {
+        const searchMessage = await client.messages.create({
+          model: 'claude-sonnet-4-5',
+          max_tokens: 400,
+          tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+          messages: [{
+            role: 'user',
+            content: `Find "${searchQuery}" on digikey.com and mouser.com. Return URL, price, stock only.`
+          }],
+        })
+        distributorContext = searchMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('').slice(0, 500)
+      } catch {}
+    }
 
-    const distributorContext = distributorResult.status === 'fulfilled'
-      ? (distributorResult.value as any).content.map((b: any) => b.type === 'text' ? b.text : '').join('')
-      : 'Distributors: unavailable'
-
-    contextData = `${alibabaContext}\n\nDISTRIBUTOR DATA (Digi-Key/Mouser/Farnell):\n${distributorContext}`
+    contextData = `${alibabaContext}\n${distributorContext ? 'DISTRIBUTORS: ' + distributorContext : ''}`
 
     // Structure results with AI
     const structureMessage = await client.messages.create({

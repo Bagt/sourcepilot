@@ -18,7 +18,14 @@ function extractJSON(text: string): string | null {
 
 function getSearchQuery(description: string): string {
   const firstLine = description.split('\n')[0].trim()
-  return firstLine.length > 80 ? firstLine.slice(0, 80) : firstLine
+  // Remove spec details like voltages, dimensions, part numbers in parentheses
+  const cleaned = firstLine
+    .replace(/\d+x\d+x\d+mm/gi, '')
+    .replace(/\d+V\s*DC/gi, '')
+    .replace(/\([^)]{20,}\)/g, '')
+    .replace(/\b\d+\.\d+[A-Z]\b/g, '')
+    .trim()
+  return cleaned.length > 60 ? cleaned.slice(0, 60) : cleaned
 }
 
 async function scrapeAlibaba(query: string): Promise<{
@@ -80,12 +87,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     let contextData = ''
 
-    // Search Alibaba only — distributor search causes rate limit issues
-    let alibabaContext = 'Alibaba: unavailable'
+    let alibabaContext = ''
     try {
       const alibaba = await scrapeAlibaba(searchQuery)
-      alibabaContext = `Suppliers: ${alibaba.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 3).join(' ')}`
+      if (alibaba.suppliers.length > 0 || alibaba.productLinks.length > 0) {
+        alibabaContext = `Suppliers: ${alibaba.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 3).join(' ')}`
+      } else {
+        // Try a shorter query
+        const shortQuery = searchQuery.split(' ').slice(0, 3).join(' ')
+        const alibaba2 = await scrapeAlibaba(shortQuery)
+        alibabaContext = `Suppliers: ${alibaba2.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba2.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba2.productLinks.slice(0, 3).join(' ')}`
+      }
     } catch {}
+
+    if (!alibabaContext) {
+      alibabaContext = `No live data found. Search Alibaba manually: https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(searchQuery)}`
+    }
 
     contextData = alibabaContext
 

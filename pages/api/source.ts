@@ -48,14 +48,17 @@ async function scrapeAlibaba(query: string): Promise<{
 
   if (html.length < 1000) throw new Error('Alibaba returned no content')
 
-  const prices = html.match(/US\$\s*[\d,.]+\s*[-–]\s*[\d,.]+|US\$\s*[\d,.]+/g) || []
-  const minOrders = html.match(/[\d,]+\s*(?:Pieces?|Units?|Sets?)\s*\(Min/gi) || []
+  // Only look at first 50KB — product data is near the top
+  const htmlSlice = html.slice(0, 50000)
+
+  const prices = htmlSlice.match(/US\$\s*[\d,.]+\s*[-–]\s*[\d,.]+|US\$\s*[\d,.]+/g) || []
+  const minOrders = htmlSlice.match(/[\d,]+\s*(?:Pieces?|Units?|Sets?)\s*\(Min/gi) || []
   const productLinks = Array.from(new Set(
-    (html.match(/\/product-detail\/[^"&\s?]{10,150}/g) || [])
+    (htmlSlice.match(/\/product-detail\/[^"&\s?]{10,150}/g) || [])
       .map((l: string) => `https://www.alibaba.com${l.split('?')[0]}`)
   ))
   const suppliers = Array.from(new Set(
-    (html.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || [])
+    (htmlSlice.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || [])
       .map((m: string) => m.replace(/"companyName"\s*:\s*"/, '').replace(/"$/, ''))
   ))
 
@@ -81,7 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let alibabaContext = 'Alibaba: unavailable'
     try {
       const alibaba = await scrapeAlibaba(searchQuery)
-      alibabaContext = `ALIBABA: Suppliers: ${alibaba.suppliers.slice(0, 4).join(' | ')} | Prices: ${alibaba.prices.slice(0, 4).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 4).join(' | ')}`
+      alibabaContext = `ALIBABA: Suppliers: ${alibaba.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 3).join(' ')}`
     } catch {}
 
     // Step 2: Search distributors (only if electronics or no Alibaba results)
@@ -107,14 +110,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Structure results with AI
     const structureMessage = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 2000,
+      max_tokens: 1000,
       system: 'You are a JSON API. You ONLY output valid JSON. Never use markdown. Never use code blocks. Never add explanations. Your entire response must be a single JSON object starting with { and ending with }.',
       messages: [{
         role: 'user',
         content: `Return supplier data for "${searchQuery}" as JSON.
 
 DATA:
-${contextData.slice(0, 1500)}
+${contextData.slice(0, 800)}
 
 Specs: qty=${spec.quantity || 'any'}, target=${spec.targetPrice ? '$'+spec.targetPrice : 'any'}, certs=${spec.certifications || 'none'}
 

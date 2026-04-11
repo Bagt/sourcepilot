@@ -19,7 +19,48 @@ function extractJSON(text: string): string | null {
 
 function getSearchQuery(description: string): string {
   const firstLine = description.split('\n')[0].trim()
-  return firstLine.length > 60 ? firstLine.slice(0, 60) : firstLine
+  // Strip model numbers and specs that confuse Alibaba search
+  return firstLine
+    .replace(/\b[A-Z]{2,}\d{4,}[A-Z]?\b/g, '') // strip model numbers like RDM1225B
+    .replace(/\d+x\d+x\d+mm/gi, '')
+    .replace(/\d+\.\d+[A-Z]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 50)
+}
+
+async function scrapeAlibaba(query: string): Promise<{
+  suppliers: string[], productLinks: string[], prices: string[], minOrders: string[]
+}> {
+  const user = process.env.OXYLABS_USER || ''
+  const pass = process.env.OXYLABS_PASS || ''
+
+  const response = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}`,
+    },
+    body: JSON.stringify({ source: 'alibaba_search', query, render: 'html' }),
+  })
+
+  const data = await response.json()
+  const html = (data?.results?.[0]?.content || '').slice(0, 80000)
+
+  if (html.length < 1000) throw new Error('Blocked or empty')
+
+  const prices = html.match(/US\$\s*[\d,.]+\s*[-–]\s*[\d,.]+|US\$\s*[\d,.]+/g) || []
+  const minOrders = html.match(/[\d,]+\s*(?:Pieces?|Units?|Sets?)\s*\(Min/gi) || []
+  const productLinks = Array.from(new Set(
+    (html.match(/\/product-detail\/[^"&\s?]{10,150}/g) || [])
+      .map((l: string) => `https://www.alibaba.com${l.split('?')[0]}`)
+  )) as string[]
+  const suppliers = Array.from(new Set(
+    (html.match(/"companyName"\s*:\s*"([^"]{3,60})"/g) || [])
+      .map((m: string) => m.replace(/"companyName"\s*:\s*"/, '').replace(/"$/, ''))
+  )) as string[]
+
+  return { suppliers, productLinks, prices, minOrders }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -30,42 +71,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const searchQuery = getSearchQuery(spec.description)
 
   try {
-    // Step 1: Search for real suppliers
-    const searchMessage = await client.messages.create({
+    let alibaba
+    try {
+      alibaba = await scrapeAlibaba(searchQuery)
+      // If empty, try shorter query
+      if (alibaba.suppliers.length === 0 && alibaba.productLinks.length === 0) {
+        const shortQuery = searchQuery.split(' ').slice(0, 3).join(' ')
+        alibaba = await scrapeAlibaba(shortQuery)
+      }
+    } catch {
+      return res.status(200).json({
+        summary: 'Alibaba is temporarily unavailable. Please try again in a few minutes.',
+        no_results: true, suggestions: [], suppliers: []
+      })
+    }
+
+    if (alibaba.suppliers.length === 0 && alibaba.productLinks.length === 0) {
+      return res.status(200).json({
+        summary: `No results found for "${searchQuery}". Try simpler keywords e.g. "DC cooling fan 120mm" instead of a model number.`,
+        no_results: true,
+        suggestions: [{ field: 'description', issue: 'No matches found', suggestion: 'Use generic product name without model numbers' }],
+        suppliers: []
+      })
+    }
+
+    const contextData = `Suppliers: ${alibaba.suppliers.slice(0, 4).join(' | ')}
+Prices: ${alibaba.prices.slice(0, 4).join(' | ')}
+MOQ: ${alibaba.minOrders.slice(0, 3).join(' | ')}
+Product URLs:
+${alibaba.productLinks.slice(0, 4).map((l, i) => `${i+1}. ${l}`).join('\n')}`
+
+    const message = await client.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 1000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+      max_tokens: 800,
+      system: 'You are a JSON API. Output only valid JSON, no markdown.',
       messages: [{
         role: 'user',
-        content: `Search alibaba.com for "${searchQuery}" suppliers. Find 4 real suppliers with company names, product page URLs on alibaba.com, price ranges, and MOQ. Report exactly what you find.`
-      }],
-    })
-
-    const rawData = searchMessage.content
-      .map((b: any) => (b.type === 'text' ? b.text : ''))
-      .join('')
-
-    // Step 2: Structure into JSON
-    const structureMessage = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1000,
-      system: 'You are a JSON API. Output only valid JSON, no markdown, no explanation.',
-      messages: [{
-        role: 'user',
-        content: `Structure this supplier data for "${searchQuery}" into JSON.
-
-DATA:
-${rawData.slice(0, 1200)}
-
-Specs: qty=${spec.quantity || 'any'}, price=${spec.targetPrice ? '$'+spec.targetPrice : 'any'}, certs=${spec.certifications || 'none'}
-
+        content: `Return supplier JSON for "${searchQuery}".
+Data: ${contextData}
+Specs: qty=${spec.quantity||'any'} price=${spec.targetPrice?'$'+spec.targetPrice:'any'} certs=${spec.certifications||'none'}
 {"summary":"one sentence","no_results":false,"suggestions":[],"suppliers":[{"name":"","platform":"Alibaba","country":"China","unit_price":"","moq":"","lead_time":"2-4 weeks","certifications":"CE/RoHS","score":"A","score_reason":"","notes":"","search_tip":"","product_url":""}]}`
       }],
     })
 
-    const text = structureMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+    const text = message.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
     const jsonStr = extractJSON(text)
-    if (!jsonStr) throw new Error('Could not parse results — please try again')
+    if (!jsonStr) throw new Error('Please try again')
 
     const result: SearchResult = JSON.parse(jsonStr)
     return res.status(200).json(result)

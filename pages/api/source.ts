@@ -73,38 +73,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!spec.description?.trim()) return res.status(400).json({ error: 'Component description is required' })
 
   const searchQuery = getSearchQuery(spec.description)
-  const isElectronics = /sensor|resistor|capacitor|microcontroller|esp32|arduino|transistor|diode|pcb|module|cr203|battery/i.test(spec.description)
+  const isElectronics = /sensor|resistor|capacitor|microcontroller|esp32|arduino|transistor|diode|pcb|module|cr203|battery|fan|rdm|brushless|blower/i.test(spec.description)
 
   try {
     let contextData = ''
 
-    if (isElectronics) {
-      // For electronics: use web search for Digi-Key/Mouser
-      const searchMessage = await client.messages.create({
+    // Always run both in parallel — Alibaba for volume, distributors for certified parts
+    const [alibabaResult, distributorResult] = await Promise.allSettled([
+      scrapeAlibaba(searchQuery),
+      client.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 800,
+        max_tokens: 600,
         tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
         messages: [{
           role: 'user',
-          content: `Search "${searchQuery}" on digikey.com and mouser.com. Return exact product URL, price, stock for each. Be brief.`
+          content: `Search "${searchQuery}" on digikey.com and mouser.com. Return product URL, price, stock. Be brief.`
         }],
       })
-      contextData = searchMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('')
-    } else {
-      // For hardware/mechanical: use Oxylabs to scrape Alibaba
-      try {
-        const alibaba = await scrapeAlibaba(searchQuery)
-        contextData = `ALIBABA LIVE DATA for "${searchQuery}":
-Suppliers found: ${alibaba.suppliers.join(' | ')}
-Prices found: ${alibaba.prices.join(' | ')}
-Min orders: ${alibaba.minOrders.join(' | ')}
-Product URLs (use these exactly):
-${alibaba.productLinks.map((l, i) => `${i + 1}. ${l}`).join('\n')}
-Alibaba search URL: https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(searchQuery)}&IndexArea=product_en`
-      } catch {
-        contextData = `Alibaba scraping failed. Use web search for "${searchQuery}" suppliers.`
-      }
-    }
+    ])
+
+    const alibabaContext = alibabaResult.status === 'fulfilled'
+      ? `ALIBABA SUPPLIERS:
+Suppliers: ${alibabaResult.value.suppliers.join(' | ')}
+Prices: ${alibabaResult.value.prices.join(' | ')}
+Min orders: ${alibabaResult.value.minOrders.join(' | ')}
+Product URLs:
+${alibabaResult.value.productLinks.map((l: string, i: number) => `${i + 1}. ${l}`).join('\n')}`
+      : 'Alibaba: unavailable'
+
+    const distributorContext = distributorResult.status === 'fulfilled'
+      ? (distributorResult.value as any).content.map((b: any) => b.type === 'text' ? b.text : '').join('')
+      : 'Distributors: unavailable'
+
+    contextData = `${alibabaContext}\n\nDISTRIBUTOR DATA (Digi-Key/Mouser/Farnell):\n${distributorContext}`
 
     // Structure results with AI
     const structureMessage = await client.messages.create({

@@ -19,14 +19,7 @@ function extractJSON(text: string): string | null {
 
 function getSearchQuery(description: string): string {
   const firstLine = description.split('\n')[0].trim()
-  // Strip model numbers and specs that confuse Alibaba search
-  return firstLine
-    .replace(/\b[A-Z]{2,}\d{4,}[A-Z]?\b/g, '') // strip model numbers like RDM1225B
-    .replace(/\d+x\d+x\d+mm/gi, '')
-    .replace(/\d+\.\d+[A-Z]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 50)
+  return firstLine.slice(0, 60)
 }
 
 async function scrapeAlibaba(query: string): Promise<{
@@ -74,11 +67,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let alibaba
     try {
       alibaba = await scrapeAlibaba(searchQuery)
-      // If empty, try shorter query
-      if (alibaba.suppliers.length === 0 && alibaba.productLinks.length === 0) {
-        const shortQuery = searchQuery.split(' ').slice(0, 3).join(' ')
-        alibaba = await scrapeAlibaba(shortQuery)
-      }
     } catch {
       return res.status(200).json({
         summary: 'Alibaba is temporarily unavailable. Please try again in a few minutes.',

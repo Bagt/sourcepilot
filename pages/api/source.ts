@@ -80,32 +80,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     let contextData = ''
 
-    // Step 1: Scrape Alibaba
+    // Search Alibaba only — distributor search causes rate limit issues
     let alibabaContext = 'Alibaba: unavailable'
     try {
       const alibaba = await scrapeAlibaba(searchQuery)
-      alibabaContext = `ALIBABA: Suppliers: ${alibaba.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 3).join(' ')}`
+      alibabaContext = `Suppliers: ${alibaba.suppliers.slice(0, 3).join(' | ')} | Prices: ${alibaba.prices.slice(0, 3).join(' | ')} | URLs: ${alibaba.productLinks.slice(0, 3).join(' ')}`
     } catch {}
 
-    // Step 2: Search distributors (only if electronics or no Alibaba results)
-    let distributorContext = ''
-    const isElectronics = /sensor|esp32|arduino|pcb|module|battery|fan|rdm|brushless|cr203|microcontroller/i.test(spec.description)
-    if (isElectronics) {
-      try {
-        const searchMessage = await client.messages.create({
-          model: 'claude-sonnet-4-5',
-          max_tokens: 400,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-          messages: [{
-            role: 'user',
-            content: `Find "${searchQuery}" on digikey.com and mouser.com. Return URL, price, stock only.`
-          }],
-        })
-        distributorContext = searchMessage.content.map((b: any) => b.type === 'text' ? b.text : '').join('').slice(0, 500)
-      } catch {}
-    }
-
-    contextData = `${alibabaContext}\n${distributorContext ? 'DISTRIBUTORS: ' + distributorContext : ''}`
+    contextData = alibabaContext
 
     // Structure results with AI
     const structureMessage = await client.messages.create({
